@@ -1,0 +1,547 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dictionary Explorer</title>
+    <style>
+        /* General Styles */
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f4f4f9;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+        }
+
+        /* Daily Word Section */
+        .daily-word {
+            background-color: #e6f3ff;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        /* Search Bar */
+        .search-bar {
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        .search-bar input {
+            padding: 10px;
+            width: 300px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            font-size: 16px;
+        }
+
+        /* Letter Filter */
+        .letter-filter {
+            display: flex;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .letter-btn {
+            padding: 10px 15px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        .letter-btn:hover {
+            background-color: #0056b3;
+        }
+
+        /* Word and Idiom Lists */
+        .word-list, .idiom-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .word-card, .idiom-card {
+            background-color: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            cursor: pointer;
+            text-align: center;
+        }
+        .word-card:hover, .idiom-card:hover {
+            background-color: #e9ecef;
+        }
+
+        /* Word and Idiom Details */
+        .word-details, .idiom-details {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            display: none;
+        }
+        .word-details.active, .idiom-details.active {
+            display: block;
+        }
+        .word-details h2, .idiom-details h2 {
+            margin-top: 0;
+            color: #007bff;
+            display: inline-block;
+        }
+        .word-details button, .idiom-details button {
+            margin-left: 10px;
+            padding: 5px 10px;
+            background-color: #28a745;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        .word-details button:hover, .idiom-details button:hover {
+            background-color: #218838;
+        }
+        .section {
+            margin-bottom: 15px;
+        }
+        .section h3 {
+            margin: 10px 0;
+            color: #333;
+        }
+        .section p, .section ul {
+            margin: 5px 0;
+            line-height: 1.6;
+        }
+
+        /* Responsive Design */
+        @media (max-width: 600px) {
+            .word-list, .idiom-list {
+                grid-template-columns: 1fr;
+            }
+            .letter-btn {
+                padding: 8px 10px;
+                font-size: 14px;
+            }
+            .search-bar input {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Dictionary Explorer</h1>
+
+        <!-- Daily Word Section -->
+        <div class="daily-word" id="dailyWord">
+            <h2>Word of the Day</h2>
+            <h3>Loading...</h3>
+            <p><strong>Type:</strong> <span id="dailyType"></span></p>
+            <p><strong>Meaning:</strong> <span id="dailyMeaning"></span></p>
+            <p><strong>Example:</strong> <span id="dailyExample"></span></p>
+            <p><strong>Fun Fact:</strong> <span id="dailyFact"></span></p>
+        </div>
+
+        <!-- Search Bar -->
+        <div class="search-bar">
+            <input type="text" id="searchBar" oninput="searchItems(this.value)" placeholder="Search words or idioms...">
+        </div>
+
+        <!-- Letter and Idiom Filter -->
+        <div class="letter-filter">
+            <button class="letter-btn" onclick="filterItems('A')">A</button>
+            <button class="letter-btn" onclick="filterItems('B')">B</button>
+            <button class="letter-btn" onclick="filterItems('C')">C</button>
+            <button class="letter-btn" onclick="filterItems('Idioms')">Idioms</button>
+            <button class="letter-btn" onclick="filterItems('All')">All</button>
+        </div>
+
+        <!-- Word List -->
+        <div class="word-list" id="wordList">
+            <div class="word-card" data-word="abate" onclick="showDetails('abate', 'word')">abate</div>
+            <div class="word-card" data-word="benevolent" onclick="showDetails('benevolent', 'word')">benevolent</div>
+            <div class="word-card" data-word="candid" onclick="showDetails('candid', 'word')">candid</div>
+            <div class="word-card" data-word="ambivalent" onclick="showDetails('ambivalent', 'word')">ambivalent</div>
+        </div>
+
+        <!-- Idiom List -->
+        <div class="idiom-list" id="idiomList">
+            <div class="idiom-card" data-idiom="a piece of cake" onclick="showDetails('a_piece_of_cake', 'idiom')">a piece of cake</div>
+            <div class="idiom-card" data-idiom="break the ice" onclick="showDetails('break_the_ice', 'idiom')">break the ice</div>
+            <div class="idiom-card" data-idiom="cut to the chase" onclick="showDetails('cut_to_the_chase', 'idiom')">cut to the chase</div>
+        </div>
+
+        <!-- Word Details -->
+        <div class="word-details" id="abate">
+            <h2>abate <button onclick="speak('abate')">🔊</button></h2>
+            <div class="section">
+                <h3>Type</h3>
+                <p>Verb</p>
+            </div>
+            <div class="section">
+                <h3>Meaning</h3>
+                <p>To become less intense or widespread; to diminish.</p>
+            </div>
+            <div class="section">
+                <h3>Example Sentences</h3>
+                <ul>
+                    <li>The storm began to abate, allowing the rescue team to proceed.</li>
+                    <li>Her enthusiasm for the project did not abate over time.</li>
+                    <li>Measures were taken to abate the pollution in the river.</li>
+                </ul>
+            </div>
+            <div class="section">
+                <h3>Synonyms</h3>
+                <p>subside, decrease, diminish, lessen</p>
+            </div>
+            <div class="section">
+                <h3>Antonyms</h3>
+                <p>increase, intensify, escalate</p>
+            </div>
+            <div class="section">
+                <h3>Homonyms</h3>
+                <p>None</p>
+            </div>
+            <div class="section">
+                <h3>Origin</h3>
+                <p>Middle English, from Old French abatre, meaning "to beat down," from Latin ad- (to) + battuere (to beat).</p>
+            </div>
+        </div>
+        <div class="word-details" id="benevolent">
+            <h2>benevolent <button onclick="speak('benevolent')">🔊</button></h2>
+            <div class="section">
+                <h3>Type</h3>
+                <p>Adjective</p>
+            </div>
+            <div class="section">
+                <h3>Meaning</h3>
+                <p>Well-meaning and kindly; charitable.</p>
+            </div>
+            <div class="section">
+                <h3>Example Sentences</h3>
+                <ul>
+                    <li>The benevolent donor funded the new community center.</li>
+                    <li>She gave a benevolent smile to the struggling student.</li>
+                    <li>His benevolent actions earned him respect in the community.</li>
+                </ul>
+            </div>
+            <div class="section">
+                <h3>Synonyms</h3>
+                <p>kind, generous, charitable, compassionate</p>
+            </div>
+            <div class="section">
+                <h3>Antonyms</h3>
+                <p>malevolent, cruel, unkind</p>
+            </div>
+            <div class="section">
+                <h3>Homonyms</h3>
+                <p>None</p>
+            </div>
+            <div class="section">
+                <h3>Origin</h3>
+                <p>Late Middle English, from Latin benevolent-, from bene (well) + volens (wishing).</p>
+            </div>
+        </div>
+        <div class="word-details" id="candid">
+            <h2>candid <button onclick="speak('candid')">🔊</button></h2>
+            <div class="section">
+                <h3>Type</h3>
+                <p>Adjective</p>
+            </div>
+            <div class="section">
+                <h3>Meaning</h3>
+                <p>Truthful and straightforward; frank.</p>
+            </div>
+            <div class="section">
+                <h3>Example Sentences</h3>
+                <ul>
+                    <li>She gave a candid opinion about the new policy.</li>
+                    <li>His candid remarks surprised everyone at the meeting.</li>
+                    <li>The book provides a candid look into the author's life.</li>
+                </ul>
+            </div>
+            <div class="section">
+                <h3>Synonyms</h3>
+                <p>honest, frank, open, sincere</p>
+            </div>
+            <div class="section">
+                <h3>Antonyms</h3>
+                <p>deceptive, insincere, guarded</p>
+            </div>
+            <div class="section">
+                <h3>Homonyms</h3>
+                <p>candied (covered with sugar)</p>
+            </div>
+            <div class="section">
+                <h3>Origin</h3>
+                <p>Late 16th century, from Latin candidus (white, pure), later meaning "honest."</p>
+            </div>
+        </div>
+        <div class="word-details" id="ambivalent">
+            <h2>ambivalent <button onclick="speak('ambivalent')">🔊</button></h2>
+            <div class="section">
+                <h3>Type</h3>
+                <p>Adjective</p>
+            </div>
+            <div class="section">
+                <h3>Meaning</h3>
+                <p>Having mixed feelings or contradictory ideas about something or someone.</p>
+            </div>
+            <div class="section">
+                <h3>Example Sentences</h3>
+                <ul>
+                    <li>She felt ambivalent about moving to a new city.</li>
+                    <li>His ambivalent attitude made it hard to predict his decision.</li>
+                    <li>The team was ambivalent about the proposed changes.</li>
+                </ul>
+            </div>
+            <div class="section">
+                <h3>Synonyms</h3>
+                <p>uncertain, conflicted, unsure, hesitant</p>
+            </div>
+            <div class="section">
+                <h3>Antonyms</h3>
+                <p>certain, decided, resolute</p>
+            </div>
+            <div class="section">
+                <h3>Homonyms</h3>
+                <p>None</p>
+            </div>
+            <div class="section">
+                <h3>Origin</h3>
+                <p>Early 20th century, from Latin ambi- (both) + valere (be strong).</p>
+            </div>
+        </div>
+
+        <!-- Idiom Details -->
+        <div class="idiom-details" id="a_piece_of_cake">
+            <h2>a piece of cake <button onclick="speak('a piece of cake')">🔊</button></h2>
+            <div class="section">
+                <h3_TEMPORARY>Meaning</h3>
+                <p>Something very easy to do.</p>
+            </div>
+            <div class="section">
+                <h3>Example Sentences</h3>
+                <ul>
+                    <li>Passing the test was a piece of cake for her.</li>
+                    <li>Fixing the bike was a piece of cake for the mechanic.</li>
+                    <li>With her experience, the project was a piece of cake.</li>
+                </ul>
+            </div>
+            <div class="section">
+                <h3>Origin</h3>
+                <p>Originated in the 1870s in American English, possibly from the ease of eating cake, popularized in the 1930s by poet Ogden Nash.</p>
+            </div>
+        </div>
+        <div class="idiom-details" id="break_the_ice">
+            <h2>break the ice <button onclick="speak('break the ice')">🔊</button></h2>
+            <div class="section">
+                <h3>Meaning</h3>
+                <p>To start a conversation in a social situation to make people feel more comfortable.</p>
+            </div>
+            <div class="section">
+                <h3>Example Sentences</h3>
+                <ul>
+                    <li>She told a joke to break the ice at the meeting.</li>
+                    <li>Playing a game helped break the ice among the new students.</li>
+                    <li>His friendly smile broke the ice with the shy guest.</li>
+                </ul>
+            </div>
+            <div class="section">
+                <h3>Origin</h3>
+                <p>From the 16th century, referring to ships breaking ice to clear a path, later used metaphorically for social situations by Samuel Butler in 1639.</p>
+            </div>
+        </div>
+        <div class="idiom-details" id="cut_to_the_chase">
+            <h2>cut to the chase <button onclick="speak('cut to the chase')">🔊</button></h2>
+            <div class="section">
+                <h3>Meaning</h3>
+                <p>To get to the point without wasting time.</p>
+            </div>
+            <div class="section">
+                <h3>Example Sentences</h3>
+                <ul>
+                    <li>Let’s cut to the chase and discuss the main issue.</li>
+                    <li>She cut to the chase and explained her proposal clearly.</li>
+                    <li>During the meeting, he cut to the chase to save time.</li>
+                </ul>
+            </div>
+            <div class="section">
+                <h3>Origin</h3>
+                <p>From early 20th-century American film industry, referring to skipping to the exciting chase scenes in silent movies.</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Data for Words and Idioms
+        const words = [
+            {
+                word: "abate",
+                type: "verb",
+                meaning: "To become less intense or widespread; to diminish.",
+                example: "The storm began to abate, allowing the rescue team to proceed.",
+                fact: "From Old French 'abatre,' meaning 'to beat down.'"
+            },
+            {
+                word: "benevolent",
+                type: "adjective",
+                meaning: "Well-meaning and kindly; charitable.",
+                example: "The benevolent donor funded the new community center.",
+                fact: "From Latin 'bene' (well) + 'volens' (wishing)."
+            },
+            {
+                word: "candid",
+                type: "adjective",
+                meaning: "Truthful and straightforward; frank.",
+                example: "She gave a candid opinion about the new policy.",
+                fact: "From Latin 'candidus,' meaning 'white, pure.'"
+            },
+            {
+                word: "ambivalent",
+                type: "adjective",
+                meaning: "Having mixed feelings or contradictory ideas about something or someone.",
+                example: "She felt ambivalent about moving to a new city.",
+                fact: "From Latin 'ambi-' (both) + 'valere' (be strong)."
+            }
+        ];
+
+        const idioms = [
+            {
+                idiom: "a piece of cake",
+                meaning: "Something very easy to do.",
+                example: "Passing the test was a piece of cake for her.",
+                fact: "Originated in the 1870s in American English, popularized by poet Ogden Nash."
+            },
+            {
+                idiom: "break the ice",
+                meaning: "To start a conversation in a social situation to make people feel more comfortable.",
+                example: "She told a joke to break the ice at the meeting.",
+                fact: "From the 16th century, referring to ships breaking ice, later used metaphorically."
+            },
+            {
+                idiom: "cut to the chase",
+                meaning: "To get to the point without wasting time.",
+                example: "Let’s cut to the chase and discuss the main issue.",
+                fact: "From early 20th-century American film industry, referring to chase scenes."
+            }
+        ];
+
+        // Daily Word
+        function setDailyWord() {
+            const today = new Date().getDate();
+            const wordIndex = today % words.length;
+            const dailyWord = words[wordIndex];
+            document.getElementById('dailyWord').innerHTML = `
+                <h2>Word of the Day</h2>
+                <h3>${dailyWord.word}</h3>
+                <p><strong>Type:</strong> ${dailyWord.type}</p>
+                <p><strong>Meaning:</strong> ${dailyWord.meaning}</p>
+                <p><strong>Example:</strong> ${dailyWord.example}</p>
+                <p><strong>Fun Fact:</strong> ${dailyWord.fact}</p>
+            `;
+        }
+
+        // Search Functionality
+        function searchItems(query) {
+            const wordCards = document.querySelectorAll('.word-card');
+            const idiomCards = document.querySelectorAll('.idiom-card');
+            wordCards.forEach(card => {
+                card.style.display = card.dataset.word.toLowerCase().includes(query.toLowerCase()) ? 'block' : 'none';
+            });
+            idiomCards.forEach(card => {
+                card.style.display = card.dataset.idiom.toLowerCase().includes(query.toLowerCase()) ? 'block' : 'none';
+            });
+        }
+
+        // Filter Words and Idioms
+        function filterItems(filter) {
+            const wordList = document.getElementById('wordList');
+            const idiomList = document.getElementById('idiomList');
+            const wordCards = document.querySelectorAll('.word-card');
+            const idiomCards = document.querySelectorAll('.idiom-card');
+
+            if (filter === 'Idioms') {
+                wordList.style.display = 'none';
+                idiomList.style.display = 'grid';
+                idiomCards.forEach(card => card.style.display = 'block');
+            } else {
+                wordList.style.display = 'grid';
+                idiomList.style.display = 'none';
+                wordCards.forEach(card => {
+                    card.style.display = filter === 'All' || card.dataset.word.startsWith(filter.toLowerCase()) ? 'block' : 'none';
+                });
+            }
+        }
+
+        // Show Details
+        function showDetails(id, type) {
+            const allDetails = document.querySelectorAll('.word-details, .idiom-details');
+            allDetails.forEach(detail => detail.classList.remove('active'));
+            const selectedDetail = document.getElementById(id);
+            if (selectedDetail) {
+                selectedDetail.classList.add('active');
+            }
+        }
+
+        // Audio Pronunciation
+        function speak(text) {
+            const utterance = new SpeechSynthesisUtterance(text);
+            speechSynthesis.speak(utterance);
+        }
+
+        // Initialize
+        setDailyWord();
+        filterItems('All');
+    </script>
+</body>
+</html>
